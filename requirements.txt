@@ -2,3 +2,8 @@ numpy
 pillow
 matplotlib
 scipy
+requests
+typing_extensions
+opencv-python
+OpenEXR
+Imath
