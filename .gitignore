@@ -1,0 +1,56 @@
+datas/*
+experiments/*
+visualization/*
+
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Python
+__pycache__/*
+*.py[cod]
+*$py.class
+
+env/
+.env
+
+# VSCode
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+*.code-workspace
+
+# Other common files
+.history
+*.orig
+
+# Compiled files
+*.exe
+*.so
+*.dylib
+*.dll
+
+# Logs and temporary files
+*.log
+*.swp
+*~
+
+# Large media files (customize as needed)
+
+# *.jpg
+# *.png
+
+# *.mp3
+# *.mp4
+# *.avi
+# *.mov
+# *.psd
+# *.ai
+# *.yuv
+
+# Experiments data
+
+experiment_weights/*
+npys/*
