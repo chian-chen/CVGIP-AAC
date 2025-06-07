@@ -150,13 +150,19 @@ def calculate_entropy(arr: np.ndarray) -> float:
 
     return entropy(probs, base=2)
 
-def find_bmp_files(folder_path):
-    bmp_files = []
+def find_files(folder_path: str, extensions=(".bmp",)):
+    """Recursively collect files with given extensions."""
+    file_list = []
+    exts = tuple(e.lower() for e in extensions)
     for root, _, files in os.walk(folder_path):
         for file in files:
-            if file.lower().endswith('.bmp'):
-                bmp_files.append(os.path.join(root, file))
-    return bmp_files
+            if file.lower().endswith(exts):
+                file_list.append(os.path.join(root, file))
+    return sorted(file_list)
+
+# Backward compatibility
+def find_bmp_files(folder_path: str):
+    return find_files(folder_path, (".bmp",))
 
 def visualize_prob_tables(p: np.ndarray,
                           p_gt: np.ndarray,

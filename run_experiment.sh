@@ -1,5 +1,5 @@
 python3 CAAC.py \
-    --path './datas' \
+    --datasets datas Kodak hdr \
     --output './logs' \
     --prediction_methods EDP GAP MED DIFF \
     --context_settings BASE \
@@ -7,4 +7,4 @@ python3 CAAC.py \
     # --visualization 
 
 
-    
+   

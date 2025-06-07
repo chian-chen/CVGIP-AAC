@@ -4,19 +4,37 @@ from PIL import Image
 import argparse
 
 from prediction_methods import edp_predict, gap_predict, med_predict
-from utils import dc, enc, dcd, calculate_entropy, find_bmp_files, visualize_prob_tables
+from utils import dc, enc, dcd, calculate_entropy, find_files, visualize_prob_tables
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description="CAAC Settings")
-    parser.add_argument('--path', type=str, default='./datas', help='Path to the folder containing BMP files')
-    parser.add_argument('--output', type=str, default='./output', help='Output folder for processed images')
+    parser.add_argument('--datasets', nargs='+', default=['datas'],
+                        help='Dataset names or paths to process')
+    parser.add_argument('--output', type=str, default='./output',
+                        help='Output folder for processed images')
     parser.add_argument('--prediction_methods', nargs='+', help='Prediction method to use')
     parser.add_argument('--context_settings', nargs='+', help='Context settings for the prediction methods')
     parser.add_argument('--context_type_features', nargs='+', help='Context features for the prediction methods')
     parser.add_argument('--visualization', action='store_true', help='Enable visualization of the prediction process')
     parser.add_argument('--context_features_num', type=int, default=4, help='Number of context features to use')
     return parser.parse_args()
+
+DATASET_DIRS = {
+    'datas': './datas',
+    'kodak': './Kodak',
+    'hdr': './HDR_datas/HDR_npy',
+}
+
+def load_image(path: str) -> np.ndarray:
+    """Load image file (bmp/png/jpg/npy) as int16 numpy array."""
+    ext = os.path.splitext(path)[1].lower()
+    if ext == '.npy':
+        img = np.load(path)
+    else:
+        img = Image.open(path).convert('L')
+        img = np.array(img)
+    return img.astype(np.int16)
 
 def get_prediction_image(image, prediction_method):
     if prediction_method == 'EDP':
@@ -229,11 +247,16 @@ def apply_CAAC_method_with_visualization(image, prediction_image, context_settin
 
     return code_str
 
-def run_one_setting(image, prediction_method, context_setting, context_type_feature, args):
+def run_one_setting(image, file_path, prediction_method, context_setting, context_type_feature, args):
     prediction_image = get_prediction_image(image, prediction_method)
     residual = image - prediction_image
     entropy = calculate_entropy(residual)
-    output_path = os.path.join(args.output, file.split('/')[-1].replace('.bmp', ''), f'{prediction_method}_{context_setting}_{context_type_feature}')
+    base_name = os.path.splitext(os.path.basename(file_path))[0]
+    output_path = os.path.join(
+        args.output,
+        base_name,
+        f'{prediction_method}_{context_setting}_{context_type_feature}'
+    )
     print(f'Setting: {output_path}, entropy = {entropy}')
 
     context_features = get_context_features(image, prediction_image, context_type_feature)
@@ -277,43 +300,49 @@ if __name__ == "__main__":
     args = parse_args()
 
     os.makedirs(args.output, exist_ok=True)
-    files = find_bmp_files(args.path)
-    record = {"EDP" : 0, "GAP" : 0, "MED" : 0, "DIFF": 0}
-    record_sign_ratio = {"EDP" : 0, "GAP" : 0, "MED" : 0, "DIFF": 0}
-    record_sign_bits = {"EDP" : 0, "GAP" : 0, "MED" : 0, "DIFF": 0}
-    record_bitplane = {"EDP" : 0, "GAP" : 0, "MED" : 0, "DIFF": 0}
 
-    for file in files:
-        image = Image.open(file).convert('L')
-        image = np.array(image, dtype=np.int16)
-        dc_image = dc(image)
-        # print(dc_image.shape)
-        print(f"Processing file: {file}")
-        print("=====================================================================================")
-        for method in args.prediction_methods:
-            for context_setting in args.context_settings:
-                for context_type_feature in args.context_type_features:          
-                    info = run_one_setting(
-                        dc_image, 
-                        method, 
-                        context_setting, 
-                        context_type_feature, 
-                        args
-                    )
-                    record[method] += info['bpp']
-                    record_sign_ratio[method] += info['positive_ratio']
-                    record_sign_bits[method] += info['sign_bits']
-                    record_bitplane[method] += info['bpp_bitplane']
-                    # write_log(info)
-        # break
-    
-    print("Final Results:")
-    for method, bpp in record.items():
-        print(f"{method} average bpp: {bpp / len(files)}")
-    for method, positive_ratio in record_sign_ratio.items():
-        print(f"{method} average positive_ratio: {positive_ratio / len(files)}")
-    for method, sign_bits in record_sign_bits.items():
-        print(f"{method} average sign_bits: {sign_bits / len(files)}")
-    for method, bpp_bitplane in record_bitplane.items():
-        print(f"{method} average bpp_bitplane: {bpp_bitplane / len(files)}")
+    for dataset in args.datasets:
+        dpath = DATASET_DIRS.get(dataset.lower(), dataset)
+        files = find_files(dpath, (".bmp", ".png", ".jpg", ".npy"))
+        if not files:
+            print(f"No files found in {dpath}")
+            continue
+
+        print(f"=== Dataset: {dataset} ===")
+
+        record = {"EDP": 0, "GAP": 0, "MED": 0, "DIFF": 0}
+        record_sign_ratio = {"EDP": 0, "GAP": 0, "MED": 0, "DIFF": 0}
+        record_sign_bits = {"EDP": 0, "GAP": 0, "MED": 0, "DIFF": 0}
+        record_bitplane = {"EDP": 0, "GAP": 0, "MED": 0, "DIFF": 0}
+
+        for file in files:
+            image = load_image(file)
+            dc_image = dc(image)
+            print(f"Processing file: {file}")
+            print("============================================================")
+            for method in args.prediction_methods:
+                for context_setting in args.context_settings:
+                    for context_type_feature in args.context_type_features:
+                        info = run_one_setting(
+                            dc_image,
+                            file,
+                            method,
+                            context_setting,
+                            context_type_feature,
+                            args,
+                        )
+                        record[method] += info["bpp"]
+                        record_sign_ratio[method] += info["positive_ratio"]
+                        record_sign_bits[method] += info["sign_bits"]
+                        record_bitplane[method] += info["bpp_bitplane"]
+                        # write_log(info)
+        print("Final Results for", dataset)
+        for method, bpp in record.items():
+            print(f"{method} average bpp: {bpp / len(files)}")
+        for method, positive_ratio in record_sign_ratio.items():
+            print(f"{method} average positive_ratio: {positive_ratio / len(files)}")
+        for method, sign_bits in record_sign_bits.items():
+            print(f"{method} average sign_bits: {sign_bits / len(files)}")
+        for method, bpp_bitplane in record_bitplane.items():
+            print(f"{method} average bpp_bitplane: {bpp_bitplane / len(files)}")
     
