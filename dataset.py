@@ -30,6 +30,27 @@ def read_exr_as_gray16(path_exr):
 
     return y16
 
+def read_exr_as_floatY(path_exr):
+    exr = OpenEXR.InputFile(path_exr)
+    header = exr.header()
+    dw = header["dataWindow"]
+    width  = dw.max.x - dw.min.x + 1
+    height = dw.max.y - dw.min.y + 1
+
+    # 把原本的 half 或 float channel 一律讀成 32-bit float
+    FLOAT = Imath.PixelType(Imath.PixelType.FLOAT)
+    r_str = exr.channel("R", FLOAT)
+    g_str = exr.channel("G", FLOAT)
+    b_str = exr.channel("B", FLOAT)
+
+    r = np.frombuffer(r_str, dtype=np.float32).reshape((height, width))
+    g = np.frombuffer(g_str, dtype=np.float32).reshape((height, width))
+    b = np.frombuffer(b_str, dtype=np.float32).reshape((height, width))
+
+    y_float = 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+    return y_float
+
 def fetch_all_exr_links():
     BASE = "https://markfairchild.org/HDRPS/"
     THUMBS_URL = BASE + "HDRthumbs.html"
@@ -95,7 +116,7 @@ def process_exr_folder(
         exr_path = os.path.join(input_dir, filename)
         print(f"Handling：{filename}")
 
-        img = read_exr_as_gray16(exr_path)
+        img = read_exr_as_floatY(exr_path)
         if img is None:
             print(f"The img: {filename}, load failed, skip it.")
             continue
@@ -168,7 +189,7 @@ def process_exr_folder(
 
 
 if __name__ == "__main__":
-    download_exr(output_dir='./HDR_datas')
+    # download_exr(output_dir='./HDR_datas')
     process_exr_folder(
         input_dir='./HDR_datas',
         output_dir='./HDR_datas/HDR_npy',
