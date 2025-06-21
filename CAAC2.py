@@ -165,12 +165,12 @@ def apply_MIXED_CAAC_method(image, prediction_image, context_features):
     Lw, Up = 0.0, 1.0
     code_str = ""
     # p = np.ones((4, 129), dtype=float)
-    base_tb = np.exp(-abs(0.2 * (np.arange(symbols) - 1)))         # exp(-0.2 * k)
-    base_tb = base_tb / base_tb.sum() * 100        # normalize to sum=1000
+    base_tb = np.exp(-abs(0.1 * (np.arange(symbols) - 1)))         # exp(-0.2 * k)
+    base_tb = base_tb / base_tb.sum() * 1000        # normalize to sum=1000
     base_tb = np.maximum(base_tb, 1.0)              # floor at 1
     p = np.tile(base_tb, (4, 1))                    # shape = (4, 129)
 
-    add = np.ones((4, 1), dtype=np.float64) * 80
+    add = np.ones((4, 1), dtype=np.float64) * 120
     alpha = 1
 
     context = 0
@@ -200,10 +200,10 @@ def apply_MIXED_CAAC_method(image, prediction_image, context_features):
             p[context] += norm.pdf(np.arange(0, symbols), loc=d, scale=1) * add[context] * (1 - weight)
             p[context + 1] += norm.pdf(np.arange(0, symbols), loc=d, scale=1) * add[context + 1] * weight
 
-            if sum(p[context]) > 1e5:
+            if sum(p[context]) > 1e8:
                 p[context] = np.maximum(p[context]/2, 0.01)
                 add[context] /= 2
-            if sum(p[context + 1]) > 1e5:
+            if sum(p[context + 1]) > 1e8:
                 p[context + 1] = np.maximum(p[context + 1]/2, 0.01)
                 add[context + 1] /= 2
 
