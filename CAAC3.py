@@ -3,6 +3,8 @@ import os
 from PIL import Image
 import argparse
 import cv2
+from scipy.stats import norm
+
 
 from prediction_methods import edp_predict, gap_predict, med_predict
 from utils import dc, enc, dcd, calculate_entropy, find_files, visualize_prob_tables
@@ -77,51 +79,51 @@ def context_map(context_features):
     else:
         return 3
 
-def apply_CAAC_method(image, prediction_image, context_settings, context_features):
+def apply_CAAC_method(image, prediction_image, context_features):
     h, w = image.shape
     symbols = 256
     encoded_image = image - prediction_image
-    positive_count, negative_count = 0, 0
-    value_str, sign_str = 0, 0
     
     Lw, Up = 0.0, 1.0
     code_str = ""
-    p = np.ones((4, symbols), dtype=float)
-    # p_sign = np.ones((4, 2), dtype=float)
-    # p_sign = np.array([1, 1])
-    context = 0 # initial context = 0
+    # p = np.ones((4, 129), dtype=float)
+    base_tb = np.exp(-abs(0.2 * (np.arange(symbols) - 1)))         # exp(-0.2 * k)
+    base_tb = base_tb / base_tb.sum() * 100        # normalize to sum=1000
+    base_tb = np.maximum(base_tb, 1.0)              # floor at 1
+    p = np.tile(base_tb, (4, 1))                    # shape = (4, 129)
+
+    add = np.ones((4, 1), dtype=np.float64) * 80
+    alpha = 1
+
+    context = 0
     Lw, Up, cnew = enc(encoded_image[0][0], Lw, Up, p[context])
     code_str += cnew
-
 
     for i in range(0, h):
         for j in range(0, w):
             if i == 0 and j == 0:
                 continue
             context = context_map(context_features[i, j])
-            if encoded_image[i][j] > 0:
-                positive_count += 1
-            else:
-                negative_count += 1
-
             d = abs(encoded_image[i][j])
+            local_p = get_local_p(p[context], encoded_image, i, j)
+
             if d > symbols - 1:
                 print(f"Warning: value {d} at ({i}, {j}) exceeds {symbols - 1}, clipping to {symbols}")
                 d = symbols - 1
-            Lw, Up, cnew = enc(d, Lw, Up, p[context])
+            Lw, Up, cnew = enc(d, Lw, Up, local_p)
             code_str += cnew
-            value_str += len(cnew)
 
             if d != 0:
                 sign_val = 1 if (encoded_image[i][j]) > 0 else 0
                 Lw, Up, cnew = enc(sign_val, Lw, Up, np.array([0.5, 0.5]))
-                # Lw, Up, cnew = enc(sign_val, Lw, Up, p_sign)
-                # p_sign[sign_val] += 1
-                # Lw, Up, cnew = enc(sign_val, Lw, Up, p_sign[context])
-                # p_sign[context][sign_val] += 1 
                 code_str += cnew
-                sign_str += len(cnew)
-            p[context][d] += 5
+            # p[context][d] += 5
+            p[context] += norm.pdf(np.arange(0, symbols), loc=d, scale=1) * add[context]
+            add[context] *= alpha
+
+            if sum(p[context]) > 1e5:
+                p[context] = np.maximum(p[context]/2, 0.01)
+                add[context] /= 2
 
     fn = (Up < 1.0) or (Lw > 0.0)
     bn = 0
@@ -134,7 +136,40 @@ def apply_CAAC_method(image, prediction_image, context_settings, context_feature
     if bn > 0:
         code_str += format(int(np.ceil(Lw)), '0{}b'.format(bn))
 
-    return code_str, positive_count, negative_count, value_str, sign_str
+    return code_str
+
+def get_local_p(current_p, encoded_image, i, j):
+    confidence = get_confidence(encoded_image, i, j)
+    if confidence < 0.5:
+        return current_p
+    
+    local_p = current_p.copy()
+    d_prevs = get_d_prev(encoded_image, i, j)
+    for d_prev in d_prevs:
+        start_idx = max(d_prev - 1, 0)
+        end_idx = min(d_prev + 1, 128)
+        local_p[start_idx:end_idx + 1] = local_p[start_idx:end_idx + 1] * 3 * confidence
+    return local_p
+
+def get_confidence(encoded_image, i, j):
+    confidence = 0
+    points = [(-1, 0), (0, -1), (-1, -1), (-1, 1), (-2, 0), (0, -2)]
+    for point in points:
+        ni, nj = i + point[0], j + point[1]
+        if 0 <= ni < encoded_image.shape[0] and 0 <= nj < encoded_image.shape[1]:
+            if abs(encoded_image[ni][nj]) <= 1:
+                confidence += 1
+        else:
+            confidence += 0.5
+    return confidence / len(points)
+
+def get_d_prev(encoded_image, i, j):
+    d_prevs = []
+    if i - 1 >= 0:
+        d_prevs.append(abs(encoded_image[i - 1][j]))
+    if j - 1 >= 0:
+        d_prevs.append(abs(encoded_image[i][j - 1]))
+    return d_prevs
 
 def mixed_context_map(context_features):
     value = np.sum(context_features) * 2
@@ -158,13 +193,21 @@ def mixed_context_map(context_features):
     
     return c1, w
 
-def apply_MIXED_CAAC_method(image, prediction_image, context_settings, context_features):
+def apply_MIXED_CAAC_method(image, prediction_image, context_features):
     h, w = image.shape
     symbols = 256
     encoded_image = image - prediction_image
     Lw, Up = 0.0, 1.0
     code_str = ""
-    p = np.ones((4, symbols), dtype=float)
+    # p = np.ones((4, 129), dtype=float)
+    base_tb = np.exp(-abs(0.2 * (np.arange(symbols) - 1)))       # exp(-0.2 * k)
+    base_tb = base_tb / base_tb.sum() * 100        # normalize to sum=1000
+    base_tb = np.maximum(base_tb, 1.0)              # floor at 1
+    p = np.tile(base_tb, (4, 1))                    # shape = (4, 129)
+
+    add = np.ones((4, 1), dtype=np.float64) * 80
+    alpha = 1
+
     context = 0
     Lw, Up, cnew = enc(encoded_image[0][0], Lw, Up, p[context])
     code_str += cnew
@@ -175,83 +218,31 @@ def apply_MIXED_CAAC_method(image, prediction_image, context_settings, context_f
                 continue
             context, weight = mixed_context_map(context_features[i, j])
             current_p = p[context] * (1 - weight) + p[context + 1] * weight
+            local_p = get_local_p(current_p, encoded_image, i, j)
+
             d = abs(encoded_image[i][j])
             if d > symbols - 1:
                 print(f"Warning: value {d} at ({i}, {j}) exceeds {symbols - 1}, clipping to {symbols}")
                 d = symbols - 1
-            Lw, Up, cnew = enc(d, Lw, Up, current_p)
+            Lw, Up, cnew = enc(d, Lw, Up, local_p)
             code_str += cnew
 
             if d != 0:
                 sign_val = 1 if (encoded_image[i][j]) > 0 else 0
                 Lw, Up, cnew = enc(sign_val, Lw, Up, np.array([0.5, 0.5]))
                 code_str += cnew
-            p[context][d] += 5 * (1 - weight)
-            p[context + 1][d] += 5 * weight
+            
+            # p[context][d] += 5 * (1 - weight)
+            # p[context + 1][d] += 5 * weight
+            p[context] += norm.pdf(np.arange(0, symbols), loc=d, scale=1) * add[context] * (1 - weight)
+            p[context + 1] += norm.pdf(np.arange(0, symbols), loc=d, scale=1) * add[context + 1] * weight
 
-    fn = (Up < 1.0) or (Lw > 0.0)
-    bn = 0
-    while fn:
-        bn += 1
-        Lw *= 2
-        Up *= 2
-        fn = Up < (np.ceil(Lw) + 1)
-    
-    if bn > 0:
-        code_str += format(int(np.ceil(Lw)), '0{}b'.format(bn))
-
-    return code_str
-
-def get_true_prob_table(encoded_image, context_features):
-    h, w = encoded_image.shape
-    p_gt = np.zeros((4, 129), dtype=float)
-
-    for i in range(h):
-        for j in range(w):
-            context = context_map(context_features[i, j])
-            d = abs(encoded_image[i][j])
-            if d > 128:
-                print(f"Warning: value {d} at ({i}, {j}) exceeds 128, clipping to 128, original value: {d}")
-                d = 128
-            p_gt[context][d] += 1
-
-    for context in range(4):
-        total = np.sum(p_gt[context])
-        if total > 0:
-            p_gt[context] /= total
-
-    return p_gt
-
-def apply_CAAC_method_with_visualization(image, prediction_image, context_settings, context_features, output_path):
-    h, w = image.shape
-    encoded_image = image - prediction_image
-    p_gt = get_true_prob_table(encoded_image, context_features)
-
-    Lw, Up = 0.0, 1.0
-    code_str = ""
-    p = np.ones((4, 129), dtype=float)
-    context = 0
-    Lw, Up, cnew = enc(encoded_image[0][0], Lw, Up, p[context])
-    code_str += cnew
-
-    for i in range(0, h):
-        for j in range(0, w):
-            if i == 0 and j == 0:
-                continue
-            context = context_map(context_features[i, j])
-            d = abs(encoded_image[i][j])
-            if d > 128:
-                print(f"Warning: value {d} at ({i}, {j}) exceeds 128, clipping to 128, original value: {d}")
-                d = 128
-            Lw, Up, cnew = enc(d, Lw, Up, p[context])
-            code_str += cnew
-            visualize_prob_tables(p[context], p_gt[context], os.path.join(output_path, f'c_{context}_i_{i}_j_{j}_d_{d}.png'))
-
-            if d != 0:
-                sign_val = 1 if (encoded_image[i][j]) > 0 else 0
-                Lw, Up, cnew = enc(sign_val, Lw, Up, np.array([0.5, 0.5]))
-                code_str += cnew
-            p[context][d] += 1
+            if sum(p[context]) > 1e5:
+                p[context] = np.maximum(p[context]/2, 0.01)
+                add[context] /= 2
+            if sum(p[context + 1]) > 1e5:
+                p[context + 1] = np.maximum(p[context + 1]/2, 0.01)
+                add[context + 1] /= 2
 
     fn = (Up < 1.0) or (Lw > 0.0)
     bn = 0
@@ -278,26 +269,12 @@ def run_one_setting(image, file_path, prediction_method, context_setting, contex
     print(f'Setting: {output_path}, entropy = {entropy}')
     context_features = get_context_features(image, prediction_image, context_type_feature)
     if context_setting == 'MIXED':
-        result = apply_MIXED_CAAC_method(image, prediction_image, context_setting, context_features)
+        result = apply_MIXED_CAAC_method(image, prediction_image, context_features)
     else:
-        if args.visualization:    
-            result = apply_CAAC_method_with_visualization(image, prediction_image, context_setting, context_features, output_path)
-        else:
-            result, p_count, n_count, value_str, sign_str = apply_CAAC_method(image, prediction_image, context_setting, context_features)
+        result = apply_CAAC_method(image, prediction_image, context_features)
 
     print(f"Setting: {output_path},  Code length = {len(result)}, corresponding bpp: {len(result) / (image.shape[0] * image.shape[1])}")
-    # print(f"In this setting, we found the positive and negative count is : {p_count} and {n_count}, the ratio is: {p_count / (p_count + n_count) * 100}% and {n_count / (p_count + n_count) * 100}%")
-    # print(f"In this setting, we found the value / sign coding length is : {value_str} and {sign_str}, the ratio is: {value_str / (value_str + sign_str) * 100}% and {sign_str / (value_str + sign_str) * 100}%")
     print("=====================================================================================")
-
-    # sign_image = np.sign(residual)
-    # sign_mapped = np.zeros_like(sign_image, dtype=np.uint8)
-    # sign_mapped[ sign_image >  0] =   0   # black
-    # sign_mapped[ sign_image == 0] = 127   # gray
-    # sign_mapped[ sign_image <  0] = 255   # white
-    # head, tail = os.path.split(output_path)
-    # sign_img_pil = Image.fromarray(sign_mapped)
-    # sign_img_pil.save(f'{head}/{prediction_method}_sign_image.png')
 
 
     return {
@@ -305,8 +282,6 @@ def run_one_setting(image, file_path, prediction_method, context_setting, contex
         'entropy': entropy,
         'bits': result,
         'bpp': len(result) / (image.shape[0] * image.shape[1]),
-        # 'positive_ratio': p_count / (p_count + n_count) * 100,
-        # 'sign_bits': sign_str
     }
 
 def write_log(info):
@@ -353,9 +328,6 @@ if __name__ == "__main__":
                     "MIXED": 0,
                 } 
             }
-        # record_sign_ratio = {"EDP": 0, "GAP": 0, "MED": 0, "DIFF": 0}
-        # record_sign_bits = {"EDP": 0, "GAP": 0, "MED": 0, "DIFF": 0}
-        # record_bitplane = {"EDP": 0, "GAP": 0, "MED": 0, "DIFF": 0}
 
         for file in files:
             image = load_image(file)
@@ -377,23 +349,14 @@ if __name__ == "__main__":
                             args,
                         )
                         record[method][context_setting] += info["bpp"]
-                        # record_sign_ratio[method] += info["positive_ratio"]
-                        # record_sign_bits[method] += info["sign_bits"]
-                        # write_log(info)
-
 
         print("Final Results for", dataset)
         for method, bpp in record.items():
             for context_setting, value in bpp.items():
-                print(f"{context_setting} average bpp: {value / len(files)}")
-        
+                print(f"Prediction method: {method}, Context: {context_setting} average bpp: {value / len(files)}")
+    
         with open(f'global2.log', 'a', encoding='utf-8') as f:
             f.write(f"Final Results for {dataset}\n")
             for method, bpp in record.items():
                 for context_setting, value in bpp.items():
                     f.write(f"Prediction method: {method}, Context: {context_setting} average bpp: {value / len(files):.4f}\n")
-        # for method, positive_ratio in record_sign_ratio.items():
-        #     print(f"{method} average positive_ratio: {positive_ratio / len(files)}")
-        # for method, sign_bits in record_sign_bits.items():
-        #     print(f"{method} average sign_bits: {sign_bits / len(files)}")
-    

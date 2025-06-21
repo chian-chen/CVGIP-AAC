@@ -1,9 +1,10 @@
 import numpy as np
 from PIL import Image
 from scipy.stats import entropy
+import os
 
 def calculate_entropy(arr: np.ndarray) -> float:
-    arr = arr.astype(np.uint8)
+    arr = arr.astype(np.uint16)
     hist = np.bincount(arr.ravel(), minlength=256)
 
     probs = hist / np.sum(hist)
@@ -98,7 +99,7 @@ def EDP_main(image):
     y_features = create_y_features(image, 7)
     Cmatrixes = create_feature_matrix(features, 7, 4)
     
-    predicted_image = np.zeros(shape=image.shape)
+    predicted_image = np.zeros(shape=image.shape).astype(np.int16)
 
     for i in range(h):
         for j in range(w):
@@ -125,7 +126,7 @@ def edp_predict(image: np.ndarray) -> np.ndarray:
     y_features  = create_y_features(img, 7)
     Cmatrices   = create_feature_matrix(features, 7, 4)
 
-    predicted = np.zeros_like(img, dtype=np.float32)
+    predicted = np.zeros_like(img, dtype=np.float64)
     for i in range(h):
         for j in range(w):
             C  = Cmatrices[i, j]
@@ -140,8 +141,17 @@ def edp_predict(image: np.ndarray) -> np.ndarray:
 
     return predicted.astype(np.int16)
 
+def load_image(path: str) -> np.ndarray:
+    """Load image file (bmp/png/jpg/npy) as int16 numpy array."""
+    ext = os.path.splitext(path)[1].lower()
+    if ext == '.npy':
+        img = np.load(path)
+    else:
+        img = Image.open(path).convert('L')
+        img = np.array(img)
+    return img.astype(np.int16)
 
 
 if __name__ == "__main__":
-    image = Image.open('../datas/Lena.bmp').convert('L')
+    image = load_image('../datas/Lena.bmp')
     EDP_main(image)

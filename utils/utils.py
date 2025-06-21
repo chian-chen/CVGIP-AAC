@@ -30,7 +30,7 @@ def dc(image):
             cf = C @ A_block @ C.T
             dc_val = round(cf[0,0]/16.0)
             dc.append(dc_val)
-    dc = np.array(dc, dtype=int).reshape(M1, N1)
+    dc = np.array(dc, dtype=np.int16).reshape(M1, N1)
     return dc
 
 def enc(value, Lw1, Up1, pb):
@@ -142,7 +142,7 @@ def dcd(Code, Lw1, Up1, Lw2, Up2, pb):
     return vn, Code_rem, Lw, Up, Lw2, Up2
 
 def calculate_entropy(arr: np.ndarray) -> float:
-    arr = arr.astype(np.uint8)
+    arr = arr.astype(np.uint16)
     hist = np.bincount(arr.ravel(), minlength=256)
 
     probs = hist / np.sum(hist)

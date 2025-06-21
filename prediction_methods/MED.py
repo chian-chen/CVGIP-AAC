@@ -5,7 +5,7 @@ from scipy.stats import entropy
 
 
 def calculate_entropy(arr: np.ndarray) -> float:
-    arr = arr.astype(np.uint8)
+    arr = arr.astype(np.uint16)
     hist = np.bincount(arr.ravel(), minlength=256)
 
     probs = hist / np.sum(hist)
@@ -32,7 +32,7 @@ def MED_main(image):
     h, w = image.shape
 
     # Create feature matrices
-    predicted_image = np.zeros(shape=image.shape)
+    predicted_image = np.zeros(shape=image.shape).astype(np.int16)
     for i in range(h):
         for j in range(w):
             a = get_value(image, i - 1, j)

@@ -1,8 +1,10 @@
 datas/*
 HDR_datas/*
+HDR_raw/*
 Kodak/*
 experiments/*
 visualization/*
+logs/*
 
 
 # macOS
