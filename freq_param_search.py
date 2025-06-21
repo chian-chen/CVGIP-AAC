@@ -67,13 +67,14 @@ def apply_caac_with_params(image: np.ndarray,
 
 def search_frequency_parameters(file_path: str,
                                 method: str = "EDP",
-                                coef_list: Iterable[float] = (0.1, 0.2, 0.3),
-                                add_list: Iterable[float] = (40, 80, 120),
-                                alpha_list: Iterable[float] = (0.8, 1.0, 1.2)
+                                coef_list: Iterable[float] = (0.1, 0.2, 0.3, 0.4, 0.5),
+                                add_list: Iterable[float] = (500, 600),
+                                alpha_list: Iterable[float] = (1.02, 1.04)
                                 ) -> Tuple[Tuple[float, float, float], float]:
     """Brute-force search for best frequency table parameters."""
     image = load_image(file_path)
-    dc_image = dc(image)
+    # dc_image = dc(image)
+    dc_image = image
     prediction_image = get_prediction_image(dc_image, method)
     context_features = get_context_features(dc_image, prediction_image, None)
 
@@ -104,7 +105,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Search CAAC frequency table parameters")
-    parser.add_argument('file', help='Path to the image file')
+    parser.add_argument('--file', help='Path to the image file')
     parser.add_argument('--method', default='EDP', help='Prediction method')
     args = parser.parse_args()
 
